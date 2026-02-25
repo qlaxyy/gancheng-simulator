@@ -1,0 +1,792 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>网上菜市场：杆秤模拟器 (V10.1 修正版)</title>
+    <style>
+        :root {
+            --wood-dark: #5d4037;
+            --wood-light: #8d6e63;
+            --bg-paper: #fdf5e6;
+            --market-red: #c62828;
+            --market-green: #2e7d32;
+            --market-blue: #1565c0;
+            --text-color: #3e2723;
+        }
+
+        * { box-sizing: border-box; user-select: none; -webkit-tap-highlight-color: transparent; }
+
+        body {
+            font-family: "KaiTi", "楷体", "STKaiti", serif;
+            margin: 0; padding: 0;
+            background-color: var(--bg-paper);
+            color: var(--text-color);
+            height: 100vh;
+            display: flex; flex-direction: column; overflow: hidden;
+        }
+
+        header {
+            background: var(--market-red); color: #fff; 
+            padding: 8px 15px; box-shadow: 0 2px 5px rgba(0,0,0,0.2); z-index: 10;
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        
+        .mode-switch {
+            background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.5);
+            padding: 5px 12px; border-radius: 15px; font-size: 0.85rem; cursor: pointer;
+        }
+
+        #app-container { display: flex; flex: 1; height: calc(100vh - 50px); }
+
+        /* 左侧货架 */
+        #market-stall {
+            width: 240px; background: #fff3e0;
+            border-right: 2px solid var(--wood-dark); padding: 10px;
+            overflow-y: auto; display: flex; flex-direction: column;
+        }
+        #market-stall.disabled { opacity: 0.5; pointer-events: none; filter: grayscale(0.5); }
+
+        .category-title {
+            font-weight: bold; margin: 10px 0 5px; color: var(--wood-dark);
+            border-bottom: 2px dotted var(--wood-dark); padding-bottom: 2px;
+        }
+        .item-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+        .market-item {
+            background: #fff; border: 1px solid var(--wood-light);
+            border-radius: 8px; padding: 8px; text-align: center;
+            cursor: pointer; box-shadow: 0 2px 0 rgba(0,0,0,0.1);
+        }
+        .market-item:active { transform: translateY(2px); box-shadow: none; background: #f5f5f5; }
+        .market-item .icon { font-size: 26px; display: block; }
+        .market-item .name { font-size: 14px; font-weight: bold; }
+        
+        /* 中间舞台 */
+        #scale-stage {
+            flex: 1; position: relative;
+            background: radial-gradient(circle, #fff 0%, #eee 100%);
+            display: flex; flex-direction: column; overflow: hidden;
+        }
+
+        #toast-msg {
+            position: absolute; top: 10%; left: 50%; transform: translateX(-50%);
+            background: rgba(0,0,0,0.7); color: #fff; padding: 8px 20px;
+            border-radius: 20px; font-size: 1rem; opacity: 0; pointer-events: none;
+            transition: opacity 0.3s; z-index: 100;
+        }
+
+        #top-status-bar {
+            position: absolute; top: 0; left: 0; width: 100%;
+            padding: 8px; text-align: center; pointer-events: none; z-index: 5;
+        }
+        #vendor-order-display {
+            background: #fff; border: 2px solid var(--market-red); color: var(--market-red);
+            padding: 5px 20px; border-radius: 20px; font-weight: bold;
+            display: inline-block; box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        #instruction-text {
+            background: rgba(255,255,255,0.8); padding: 4px 12px; border-radius: 15px;
+            font-size: 0.9rem; color: #555; display: inline-block; margin-top: 5px;
+        }
+
+        #zoom-controls {
+            position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
+            background: rgba(255,255,255,0.9); padding: 5px 15px;
+            border-radius: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            display: flex; align-items: center; gap: 10px; font-size: 0.9rem;
+            border: 1px solid #ccc; z-index: 5;
+        }
+        input[type=range] { width: 150px; cursor: pointer; }
+
+        canvas { width: 100%; height: 100%; cursor: grab; touch-action: none; }
+        canvas:active { cursor: grabbing; }
+
+        #result-overlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.3); z-index: 20;
+            display: none; justify-content: center; align-items: center;
+        }
+        .result-card {
+            background: #fff; padding: 25px; border-radius: 10px; width: 320px;
+            text-align: center; box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+            border: 3px solid var(--wood-dark);
+        }
+        .result-title { font-size: 1.6rem; margin-bottom: 10px; font-weight: bold; }
+        .result-detail { margin-bottom: 20px; color: #555; line-height: 1.6; }
+
+        /* 右侧面板 */
+        #controls-panel {
+            width: 280px; background: #fff3e0;
+            border-left: 2px solid var(--wood-dark); padding: 15px;
+            display: flex; flex-direction: column; gap: 12px; overflow-y: auto;
+        }
+
+        .panel-box {
+            background: #fff; padding: 12px; border-radius: 8px;
+            border: 1px solid var(--wood-light);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            transition: opacity 0.3s;
+        }
+        .panel-box.disabled { opacity: 0.5; pointer-events: none; }
+        .panel-box.highlight { border: 2px solid var(--market-blue); background: #e3f2fd; }
+
+        .basket-list { max-height: 200px; overflow-y: auto; padding: 0; margin: 0; list-style: none; font-size: 0.9rem; }
+        .basket-item { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px dashed #ddd; padding: 6px 0; }
+        
+        .qty-control { display: flex; align-items: center; gap: 5px; background: #f0f0f0; border-radius: 15px; padding: 2px; }
+        .qty-btn { width: 24px; height: 24px; border-radius: 50%; border: none; background: #fff; cursor: pointer; font-weight: bold; }
+        
+        /* 数量显示/输入框样式 */
+        .qty-val { 
+            min-width: 35px; text-align: center; font-weight: bold; cursor: pointer; 
+            border-bottom: 1px dashed #999; padding: 0 4px; 
+        }
+        .qty-val:hover { background: #fff; color: var(--market-blue); }
+        
+        .qty-input-inline { 
+            width: 65px; 
+            padding: 4px; text-align: center; border: 1px solid var(--market-blue); 
+            border-radius: 4px; font-size: 1rem; font-weight: bold;
+            -moz-appearance: textfield;
+        }
+        .qty-input-inline::-webkit-outer-spin-button,
+        .qty-input-inline::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+
+        .btn {
+            background: var(--wood-dark); color: #fff; border: none;
+            padding: 10px; width: 100%; border-radius: 6px;
+            font-family: inherit; font-size: 1rem; cursor: pointer; margin-top: 8px;
+        }
+        .btn:hover { opacity: 0.9; }
+        .btn-green { background: var(--market-green); }
+        .btn-blue { background: var(--market-blue); }
+        .btn-red { background: var(--market-red); }
+        .btn-outline { background: transparent; border: 1px solid var(--wood-dark); color: var(--wood-dark); }
+        .btn-outline:hover { background: #eee; }
+        
+        .input-group { display: flex; gap: 8px; margin-top: 5px; }
+        input[type="number"] {
+            flex: 1; padding: 8px; border: 2px solid var(--wood-light);
+            border-radius: 6px; font-family: inherit; font-size: 1.1rem; text-align: center;
+        }
+        
+        #vendor-haggle-panel { display: none; }
+
+        @media (max-width: 768px) {
+            #app-container { flex-direction: column; overflow-y: auto; }
+            #market-stall, #controls-panel { width: 100%; height: auto; flex: none; }
+            #market-stall { height: 160px; border-right: none; border-bottom: 2px solid var(--wood-dark); }
+            #controls-panel { border-left: none; border-top: 2px solid var(--wood-dark); }
+            #scale-stage { min-height: 350px; }
+        }
+    </style>
+</head>
+<body>
+
+<header>
+    <div class="mode-switch" onclick="switchGameMode()">🔄 切换模式</div>
+    <h1 id="page-title">🛒 网上菜市场</h1>
+    <div style="font-size:0.8rem; opacity:0.8;">V10.1 修正积分版</div>
+</header>
+
+<div id="app-container">
+    <aside id="market-stall">
+        <div class="category-title">🥬 蔬菜区</div>
+        <div class="item-grid" id="veg-grid"></div>
+        <div class="category-title">🍎 水果区</div>
+        <div class="item-grid" id="fruit-grid"></div>
+        <div class="category-title">🥩 肉类/干货</div>
+        <div class="item-grid" id="meat-grid"></div>
+    </aside>
+
+    <main id="scale-stage">
+        <div id="toast-msg">提示信息</div>
+        <div id="top-status-bar">
+            <div id="vendor-order-display" style="display:none;"></div>
+            <br>
+            <div id="instruction-text">点击左侧加菜，拖动秤砣称重</div>
+        </div>
+        <canvas id="simCanvas"></canvas>
+        <div id="zoom-controls">
+            <span>🔍 视野</span>
+            <input type="range" id="zoom-slider" min="0.6" max="1.5" step="0.05" value="0.9">
+            <span id="zoom-val">90%</span>
+        </div>
+        <div id="result-overlay">
+            <div class="result-card">
+                <div class="result-title" id="res-title">结果</div>
+                <div class="result-detail" id="res-detail">详情...</div>
+                <div style="display:flex; gap:10px; flex-direction: column;">
+                    <button class="btn btn-green" onclick="nextRound()">✅ 下一单</button>
+                    <button class="btn btn-outline" onclick="closeResult()">❌ 暂不结算</button>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <aside id="controls-panel">
+        <div class="panel-box">
+            <h3 style="margin:5px 0 10px;">🏆 战绩</h3>
+            <div style="display:flex; justify-content:space-between; font-size:1rem;">
+                <span>积分: <b id="score-val" style="color:var(--market-red)">0</b></span>
+                <span>连对: <b id="streak-val">0</b></span>
+            </div>
+        </div>
+
+        <div id="mode-customer-ui">
+            <div class="panel-box" id="basket-panel">
+                <h4 style="margin:0 0 10px 0;">🧺 购物篮</h4>
+                <div style="font-size:0.8rem; color:#888; margin-bottom:5px;">上限: 3000g</div>
+                <ul class="basket-list" id="basket-ul">
+                    <li style="color:#999; text-align:center;">暂无物品</li>
+                </ul>
+                <button class="btn btn-green" id="btn-start-weigh">开始称重</button>
+            </div>
+
+            <div class="panel-box disabled" id="weigh-panel">
+                <h4>⚖️ 读数验证</h4>
+                <div class="input-group">
+                    <input type="number" id="weight-input" placeholder="输入克数">
+                    <button class="btn btn-green" style="width:auto;" id="btn-submit">确定</button>
+                </div>
+                <button class="btn btn-outline" style="margin-top:10px; font-size:0.9rem;" onclick="backToShopping()">⬅ 继续买菜</button>
+            </div>
+        </div>
+
+        <div id="mode-vendor-ui" style="display:none;">
+            <div class="panel-box" id="vendor-op-panel">
+                <h4>👨‍🍳 经营操作</h4>
+                <div id="vendor-controls" style="margin:10px 0;"></div>
+                
+                <div id="vendor-main-btns">
+                    <button class="btn btn-green" id="btn-vendor-done">称好了 (严格)</button>
+                    <button class="btn btn-blue" id="btn-vendor-haggle-mode">实称实算 (协商)</button>
+                </div>
+
+                <div id="vendor-haggle-panel">
+                    <hr style="margin:10px 0; border:0; border-top:1px dashed #ccc;">
+                    <div style="font-size:0.9rem; color:var(--market-blue); margin-bottom:5px;">👀 请看左侧秤杆读数</div>
+                    <div class="input-group">
+                        <input type="number" id="haggle-input" placeholder="实际克数">
+                    </div>
+                    <button class="btn btn-blue" id="btn-haggle-confirm" style="margin-top:5px;">🫱🏻‍🫲🏼 确认成交</button>
+                    <button class="btn btn-outline" id="btn-haggle-cancel" style="margin-top:5px;">⬅ 返回</button>
+                </div>
+            </div>
+        </div>
+
+        <button class="btn btn-red" id="btn-reset">清空重置</button>
+    </aside>
+</div>
+
+<script>
+/* * V10.1 修正版
+ * 1. 物理调整：Right Torque > Left Torque -> 杆子右侧翘起 (Angle < 0)，满足"越往右越高"。
+ * 2. 积分调整：使用 Math.abs(diff) 绝对误差计算。
+ */
+
+const ITEMS_DB = [
+    { id: 'potato', name: '土豆', category: 'veg', base: 150, var: 30, icon: '🥔' },
+    { id: 'tomato', name: '番茄', category: 'veg', base: 120, var: 20, icon: '🍅' },
+    { id: 'cabbage', name: '白菜', category: 'veg', base: 800, var: 100, icon: '🥬' },
+    { id: 'pepper', name: '辣椒', category: 'veg', base: 15, var: 5, icon: '🌶️', small: true },
+    { id: 'garlic', name: '大蒜', category: 'veg', base: 20, var: 5, icon: '🧄', small: true },
+    { id: 'apple', name: '苹果', category: 'fruit', base: 180, var: 20, icon: '🍎' },
+    { id: 'banana', name: '香蕉', category: 'fruit', base: 150, var: 15, icon: '🍌' },
+    { id: 'grape', name: '葡萄', category: 'fruit', base: 300, var: 50, icon: '🍇' },
+    { id: 'pork', name: '猪肉', category: 'meat', base: 200, var: 20, icon: '🥩' },
+    { id: 'fish', name: '鱼', category: 'meat', base: 700, var: 100, icon: '🐟' },
+    { id: 'rice', name: '大米', category: 'meat', base: 500, var: 0, icon: '🍚' },
+];
+
+const CONFIG = {
+    scaleRange: 3500,
+    maxWeight: 3000,
+    panDist: 80,
+    weightMass: 600,
+    tolerance: 3, 
+};
+
+const state = {
+    mode: 'customer', 
+    basket: [], 
+    totalWeight: 0,         
+    smoothWeight: 0,        
+    stage: 'shopping',
+    vendorTarget: { weight: 0, itemName: '', itemId: '' },
+    physics: { angle: 25, velocity: 0, weightPos: 20, balanced: false },
+    view: { zoom: 0.9, isDragging: false },
+    game: { score: 0, streak: 0 }
+};
+
+/* --- Init --- */
+function initMarket() {
+    ITEMS_DB.forEach(item => {
+        const div = document.createElement('div');
+        div.className = 'market-item';
+        div.innerHTML = `<span class="icon">${item.icon}</span><span class="name">${item.name}</span>`;
+        div.onclick = () => handleShelfClick(item);
+        if(item.category === 'veg') document.getElementById('veg-grid').appendChild(div);
+        else if(item.category === 'fruit') document.getElementById('fruit-grid').appendChild(div);
+        else document.getElementById('meat-grid').appendChild(div);
+    });
+}
+
+function handleShelfClick(itemDef) {
+    if (state.mode === 'customer' && state.stage !== 'shopping') {
+        showToast("正在称重，请先结束或点击“继续买菜”"); return;
+    }
+    if (state.mode === 'vendor') {
+        if (!state.vendorTarget.itemId) { showToast("请先点击重置开始新一单"); return; }
+        if (itemDef.id !== state.vendorTarget.itemId) { showToast("顾客只要 " + state.vendorTarget.itemName); return; }
+    }
+    const count = (itemDef.small && state.basket.filter(i=>i.name===itemDef.name).length===0) ? 5 : 1;
+    addItem(itemDef, count);
+}
+
+function addItem(itemDef, count) {
+    let addedWeight = 0;
+    for(let i=0; i<count; i++) addedWeight += itemDef.base; 
+    
+    if (state.totalWeight + addedWeight > CONFIG.maxWeight) {
+        showToast(`太重了！上限 ${CONFIG.maxWeight}g`); return;
+    }
+
+    for(let i=0; i<count; i++) {
+        const w = itemDef.base + (Math.random() * itemDef.var * 2 - itemDef.var);
+        state.basket.push({ 
+            id: itemDef.id, name: itemDef.name, weight: w, icon: itemDef.icon, baseDef: itemDef,
+            visualX: (Math.random() * 40 - 20), visualY: (Math.random() * 10 - 5)
+        });
+        state.totalWeight += w;
+    }
+    updateBasketUI();
+}
+
+function removeItem(itemName) {
+    for (let i = state.basket.length - 1; i >= 0; i--) {
+        if (state.basket[i].name === itemName) {
+            state.totalWeight -= state.basket[i].weight;
+            state.basket.splice(i, 1);
+            break;
+        }
+    }
+    if (state.basket.length === 0) state.totalWeight = 0;
+    updateBasketUI();
+}
+
+function updateItemCount(itemName, newCount) {
+    const currentItems = state.basket.filter(i => i.name === itemName);
+    const diff = newCount - currentItems.length;
+    if (diff > 0) {
+        const def = currentItems.length > 0 ? currentItems[0].baseDef : ITEMS_DB.find(i=>i.name===itemName);
+        if(def) addItem(def, diff);
+    } else if (diff < 0) {
+        for(let i=0; i<Math.abs(diff); i++) removeItem(itemName);
+    }
+}
+
+function updateBasketUI() {
+    const ul = document.getElementById('basket-ul');
+    ul.innerHTML = '';
+    const groups = {};
+    state.basket.forEach(item => {
+        if (!groups[item.name]) groups[item.name] = { count: 0, icon: item.icon, def: item.baseDef };
+        groups[item.name].count++;
+    });
+
+    if (Object.keys(groups).length === 0) {
+        ul.innerHTML = '<li style="color:#999; text-align:center; padding:10px;">暂无物品</li>';
+        if(state.mode==='vendor') document.getElementById('vendor-controls').innerHTML = '请点击货架添加商品';
+        return;
+    }
+
+    const createRow = (name, data) => {
+        const div = document.createElement('div');
+        div.className = 'qty-control';
+        
+        const btnDec = document.createElement('button'); btnDec.className = 'qty-btn'; btnDec.innerText = '-';
+        btnDec.onclick = () => removeItem(name);
+
+        const btnInc = document.createElement('button'); btnInc.className = 'qty-btn'; btnInc.innerText = '+';
+        btnInc.onclick = () => addItem(data.def, 1);
+
+        const qtySpan = document.createElement('span'); 
+        qtySpan.className = 'qty-val'; 
+        qtySpan.innerText = data.count;
+        
+        qtySpan.onclick = (e) => {
+            e.stopPropagation(); 
+            if(qtySpan.querySelector('input')) return; 
+
+            const oldVal = data.count;
+            qtySpan.innerText = ''; 
+            
+            const input = document.createElement('input');
+            input.type = 'number';
+            input.className = 'qty-input-inline';
+            input.value = oldVal;
+            
+            const save = () => {
+                let val = parseInt(input.value);
+                if(isNaN(val) || val < 0) val = 0;
+                if(val > 300) val = 300; 
+                updateItemCount(name, val); 
+            };
+
+            input.onblur = save;
+            input.onkeydown = (ev) => { if(ev.key === 'Enter') { input.blur(); } };
+            
+            qtySpan.appendChild(input);
+            input.focus();
+        };
+
+        div.appendChild(btnDec);
+        div.appendChild(qtySpan);
+        div.appendChild(btnInc);
+        return div;
+    };
+
+    for (let [name, data] of Object.entries(groups)) {
+        const li = document.createElement('li');
+        li.className = 'basket-item';
+        li.innerHTML = `<span style="font-weight:bold">${data.icon} ${name}</span>`;
+        li.appendChild(createRow(name, data));
+        ul.appendChild(li);
+    }
+
+    if (state.mode === 'vendor') {
+        const vContainer = document.getElementById('vendor-controls');
+        vContainer.innerHTML = '';
+        const targetName = state.vendorTarget.itemName;
+        if (targetName && groups[targetName]) {
+             const row = document.createElement('div');
+             row.style.display = 'flex'; row.style.justifyContent = 'space-between'; row.style.alignItems='center';
+             row.innerHTML = `<span style="font-weight:bold">${groups[targetName].icon} ${targetName}</span>`;
+             row.appendChild(createRow(targetName, groups[targetName]));
+             vContainer.appendChild(row);
+        }
+    }
+}
+
+/* --- Physics Engine V10.1 (Inverted Logic) --- */
+const canvas = document.getElementById('simCanvas');
+const ctx = canvas.getContext('2d');
+const zoomSlider = document.getElementById('zoom-slider');
+
+zoomSlider.oninput = function() {
+    state.view.zoom = parseFloat(this.value);
+    document.getElementById('zoom-val').innerText = Math.round(state.view.zoom * 100) + "%";
+};
+function resizeCanvas() {
+    canvas.width = canvas.parentElement.clientWidth;
+    canvas.height = canvas.parentElement.clientHeight;
+}
+window.addEventListener('resize', resizeCanvas);
+
+function loop() {
+    updatePhysics();
+    drawScene();
+    requestAnimationFrame(loop);
+}
+
+function updatePhysics() {
+    const P = state.physics;
+    
+    // 1. 计算平滑重量（模拟放菜时的晃动缓冲）
+    const diffWeight = state.totalWeight - state.smoothWeight;
+    state.smoothWeight += diffWeight * 0.1; 
+    
+    // 2. 计算力矩 (Torque = Force * Distance)
+    // 左侧力矩：菜品重量 * 秤盘距离
+    const torqueLeft = state.smoothWeight * CONFIG.panDist;
+    
+    // 右侧力矩：秤砣质量 * 秤砣位置(距离)
+    const torqueRight = CONFIG.weightMass * P.weightPos;
+    
+    // 3. 计算目标角度
+    // 物理逻辑：
+    // 如果 右边力矩(torqueRight) > 左边力矩(torqueLeft) -> 结果为正 -> 顺时针旋转 -> 右边下沉
+    // 如果 左边力矩(torqueLeft) > 右边力矩(torqueRight) -> 结果为负 -> 逆时针旋转 -> 左边下沉
+    let targetAngle = (torqueRight - torqueLeft) / 1000; // 调整分母可改变灵敏度
+    
+    // 4. 角度限制（防止转圈圈）
+    targetAngle = Math.max(-28, Math.min(28, targetAngle));
+    
+    // 5. 弹簧阻尼运动系统 (核心动画逻辑)
+    // 速度 += (目标角度 - 当前角度) * 弹性系数
+    P.velocity += (targetAngle - P.angle) * 0.04;
+    
+    // 速度衰减 (模拟摩擦力，防止永远摆动)
+    P.velocity *= 0.90; 
+    
+    // 更新角度
+    P.angle += P.velocity;
+    
+    // 6. 判断是否平衡 (误差范围内)
+    state.physics.balanced = Math.abs(P.angle) < CONFIG.tolerance;
+}
+
+function drawScene() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const cx = canvas.width / 2;
+    const cy = 100 * state.view.zoom; 
+    const angleRad = state.physics.angle * Math.PI / 180;
+    const zoom = state.view.zoom;
+
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.scale(zoom, zoom);
+    
+    // 提绳
+    ctx.beginPath(); ctx.moveTo(0, -100); ctx.lineTo(0, 0);
+    ctx.lineWidth = 4/zoom; ctx.strokeStyle = '#8d6e63'; ctx.stroke();
+
+    // 旋转杆
+    ctx.rotate(angleRad);
+    const beamRight = (canvas.width / zoom) * 0.8;
+    const beamLeft = -CONFIG.panDist - 40;
+    const grad = ctx.createLinearGradient(0, -5, 0, 5);
+    grad.addColorStop(0, '#5d4037'); grad.addColorStop(1, '#8d6e63');
+    ctx.fillStyle = grad;
+    ctx.beginPath(); ctx.moveTo(beamLeft, -6); ctx.lineTo(beamRight, -3); ctx.lineTo(beamRight, 3); ctx.lineTo(beamLeft, 6); ctx.fill();
+
+    // 刻度
+    ctx.fillStyle = '#fff'; ctx.textAlign = 'center';
+    for (let g = 0; g <= CONFIG.scaleRange; g += 50) {
+        const px = (g * CONFIG.panDist) / CONFIG.weightMass;
+        if (px > beamRight) break;
+        if (g % 500 === 0) {
+            ctx.fillStyle = 'gold'; ctx.fillRect(px - 1, -6, 2, 12);
+            ctx.save(); ctx.translate(px, -22); 
+            ctx.rotate(-angleRad); 
+            ctx.fillStyle = '#3e2723'; ctx.font = 'bold 12px Arial'; 
+            ctx.fillText(g, 0, 0); 
+            ctx.restore();
+        } else if (g % 100 === 0 && zoom > 0.7) {
+            ctx.fillStyle = '#eee'; ctx.fillRect(px - 0.5, -4, 1, 8);
+        }
+    }
+
+    // 秤盘
+    ctx.save();
+    ctx.translate(-CONFIG.panDist, 0);
+    ctx.rotate(-angleRad); 
+    ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(-25,90); ctx.moveTo(0,0); ctx.lineTo(25,90);
+    ctx.strokeStyle = '#333'; ctx.lineWidth = 1/zoom; ctx.stroke();
+    ctx.beginPath(); ctx.ellipse(0, 90, 60, 15, 0, 0, Math.PI * 2);
+    ctx.fillStyle = '#222'; ctx.fill();
+    
+    const groups = {};
+    state.basket.forEach(i => {
+        if(!groups[i.name]) groups[i.name] = { icon: i.icon, count: 0 };
+        groups[i.name].count++;
+    });
+    let drawIdx = 0;
+    for(let name in groups) {
+        const g = groups[name];
+        const row = Math.floor(drawIdx / 2);
+        const baseY = 80 - (row * 25);
+        const baseX = (drawIdx % 2 === 0 ? -15 : 15);
+        ctx.font = '28px Arial'; ctx.textAlign = 'center';
+        ctx.fillText(g.icon, baseX, baseY);
+        if(g.count > 1) {
+            const badge = `x${g.count}`;
+            ctx.font = 'bold 12px Arial';
+            const tw = ctx.measureText(badge).width;
+            ctx.fillStyle = 'rgba(255,255,255,0.9)';
+            ctx.beginPath(); ctx.roundRect(baseX + 10, baseY - 10, tw+6, 16, 8); ctx.fill();
+            ctx.fillStyle = '#d32f2f'; ctx.fillText(badge, baseX + 13 + tw/2, baseY + 2);
+        }
+        drawIdx++;
+    }
+    ctx.restore();
+
+    // 秤砣
+    ctx.save();
+    ctx.translate(state.physics.weightPos, 0);
+    ctx.fillStyle = '#C0C0C0'; ctx.fillRect(-3, -7, 6, 14); ctx.strokeStyle = '#555'; ctx.lineWidth = 1; ctx.strokeRect(-3, -7, 6, 14);
+    ctx.rotate(-angleRad); 
+    ctx.beginPath(); ctx.moveTo(0, 7); ctx.lineTo(0, 45);
+    ctx.strokeStyle = '#d32f2f'; ctx.lineWidth = 2/zoom; ctx.stroke();
+    if (state.view.isDragging) { ctx.shadowColor = "rgba(255, 215, 0, 1)"; ctx.shadowBlur = 15; }
+    ctx.fillStyle = '#444'; ctx.beginPath(); ctx.moveTo(-14,45); ctx.lineTo(14,45); ctx.lineTo(16,75); ctx.lineTo(-16,75); ctx.fill();
+    ctx.shadowBlur = 0; 
+    ctx.fillStyle = '#fff'; ctx.font = '10px Arial'; ctx.fillText("600g", -12, 60);
+    ctx.restore();
+    ctx.restore();
+}
+
+/* --- Interaction --- */
+function getLogicX(evt) {
+    const rect = canvas.getBoundingClientRect();
+    const cx = (evt.touches ? evt.touches[0].clientX : evt.clientX) - rect.left;
+    return (cx - canvas.width/2) / state.view.zoom;
+}
+canvas.addEventListener('mousedown', e => { if (getLogicX(e) > -50) state.view.isDragging = true; });
+canvas.addEventListener('mousemove', e => { if (state.view.isDragging) { let d = getLogicX(e); d = Math.max(10, Math.min(d, (canvas.width/state.view.zoom)*0.9)); state.physics.weightPos = d; }});
+window.addEventListener('mouseup', () => state.view.isDragging = false);
+canvas.addEventListener('touchstart', e => { if (getLogicX(e) > -50) state.view.isDragging = true; }, {passive:false});
+canvas.addEventListener('touchmove', e => { if (state.view.isDragging) { e.preventDefault(); let d = getLogicX(e); d = Math.max(10, Math.min(d, (canvas.width/state.view.zoom)*0.9)); state.physics.weightPos = d; }}, {passive:false});
+window.addEventListener('touchend', () => state.view.isDragging = false);
+
+function showToast(msg) {
+    const t = document.getElementById('toast-msg');
+    t.innerText = msg; t.style.opacity = 1;
+    setTimeout(() => t.style.opacity = 0, 2000);
+}
+
+function switchGameMode() {
+    state.mode = state.mode === 'customer' ? 'vendor' : 'customer';
+    resetGame();
+    document.getElementById('page-title').innerText = state.mode==='customer' ? '🛒 网上菜市场' : '👨‍🍳 我是老板';
+    document.getElementById('mode-customer-ui').style.display = state.mode==='customer' ? 'block' : 'none';
+    document.getElementById('mode-vendor-ui').style.display = state.mode==='customer' ? 'none' : 'block';
+    const vBar = document.getElementById('vendor-order-display');
+    vBar.style.display = state.mode==='vendor' ? 'inline-block' : 'none';
+    if(state.mode === 'vendor') startVendorRound();
+    else updateInstruction("请放入菜品，然后开始称重", false);
+}
+
+function resetGame() {
+    state.basket = []; state.totalWeight = 0; state.smoothWeight = 0;
+    state.physics.angle = 25; state.physics.balanced = false;
+    state.stage = state.mode === 'customer' ? 'shopping' : 'active';
+    
+    document.getElementById('market-stall').classList.remove('disabled');
+    document.getElementById('market-stall').style.opacity = '1'; 
+    document.getElementById('market-stall').style.pointerEvents = 'auto';
+
+    document.getElementById('weight-input').value = '';
+    document.getElementById('haggle-input').value = '';
+    
+    document.getElementById('basket-panel').classList.remove('disabled');
+    document.getElementById('weigh-panel').classList.add('disabled');
+    
+    document.getElementById('vendor-main-btns').style.display = 'block';
+    document.getElementById('vendor-haggle-panel').style.display = 'none';
+    document.getElementById('vendor-op-panel').classList.remove('highlight');
+
+    updateBasketUI();
+    closeResult();
+}
+
+function updateInstruction(text, isError) {
+    const el = document.getElementById('instruction-text');
+    if(!text) { el.style.opacity = 0; return; }
+    el.style.opacity = 1; el.innerText = text; el.style.color = isError ? 'var(--market-red)' : '#555';
+}
+
+function showResult(title, detail, isSuccess) {
+    const overlay = document.getElementById('result-overlay');
+    document.getElementById('res-title').innerText = title;
+    document.getElementById('res-title').style.color = isSuccess ? 'var(--market-green)' : 'var(--market-red)';
+    document.getElementById('res-detail').innerHTML = detail;
+    overlay.style.display = 'flex';
+    document.getElementById('score-val').innerText = state.game.score;
+}
+function closeResult() { document.getElementById('result-overlay').style.display = 'none'; }
+function nextRound() { closeResult(); resetGame(); if(state.mode==='vendor') startVendorRound(); }
+
+/* Buyer Logic - V10.1 Absolute Scoring */
+document.getElementById('btn-start-weigh').onclick = () => {
+    if(state.basket.length===0) return showToast("篮子是空的！");
+    state.stage = 'weighing'; state.physics.weightPos = 20; 
+    document.getElementById('basket-panel').classList.add('disabled');
+    document.getElementById('weigh-panel').classList.remove('disabled');
+    document.getElementById('market-stall').classList.add('disabled');
+    updateInstruction("拖动秤砣，使杆秤平衡", false);
+};
+function backToShopping() {
+    state.stage = 'shopping';
+    document.getElementById('basket-panel').classList.remove('disabled');
+    document.getElementById('weigh-panel').classList.add('disabled');
+    document.getElementById('market-stall').classList.remove('disabled');
+    updateInstruction("请放入菜品", false);
+}
+document.getElementById('btn-submit').onclick = () => {
+    const val = parseInt(document.getElementById('weight-input').value);
+    if(isNaN(val)) return;
+    const actual = state.totalWeight;
+    const diff = Math.abs(val - actual); // 绝对误差
+
+    let title = "称错了"; let isWin = false; let scoreAdd = 0;
+    let rank = "";
+
+    if (diff <= 10) { 
+        title = "神准！"; isWin = true; scoreAdd = 100; rank="误差≤10g (完美)";
+        state.game.streak++;
+    } else if (diff <= 30) { 
+        title = "优秀！"; isWin = true; scoreAdd = 50; rank="误差≤30g (优秀)";
+        state.game.streak++;
+    } else if (diff <= 50) { 
+        title = "合格"; isWin = true; scoreAdd = 20; rank="误差≤50g (合格)";
+        state.game.streak = 0;
+    } else {
+        title = "再接再厉"; isWin = false; state.game.streak = 0;
+        rank=`误差 ${diff}g (太大啦)`;
+    }
+
+    if(isWin) state.game.score += scoreAdd;
+    showResult(title, `你的读数: ${val}g<br>实际重量: ${actual.toFixed(1)}g<br>${rank}`, isWin);
+};
+
+/* Vendor Logic - V10.1 Absolute Scoring */
+function startVendorRound() {
+    const item = ITEMS_DB[Math.floor(Math.random() * ITEMS_DB.length)];
+    const targetW = Math.floor((Math.random() * 25) + 3) * 100; 
+    state.vendorTarget = { weight: targetW, itemName: item.name, itemId: item.id };
+    document.getElementById('vendor-order-display').innerHTML = `订单: ${targetW}g ${item.name}`;
+    state.physics.weightPos = 20; 
+    updateInstruction(`请添加 ${item.name} 并手动称重`, false);
+    updateBasketUI();
+}
+document.getElementById('btn-vendor-done').onclick = () => {
+    const target = state.vendorTarget.weight;
+    const actual = state.totalWeight;
+    const diff = Math.abs(actual - target);
+
+    let title = ""; let isWin = false;
+    if(diff <= 20) {
+        title = "完美成交"; isWin = true; state.game.score += 100;
+        showResult(title, `目标: ${target}g<br>实给: ${actual}g<br>误差仅 ${diff}g`, true);
+    } else if (diff <= 50) {
+        title = "基本成交"; isWin = true; state.game.score += 30;
+        showResult(title, `目标: ${target}g<br>实给: ${actual}g<br>误差 ${diff}g (还好)`, true);
+    } else {
+        title = "生意失败"; 
+        showResult(title, `目标: ${target}g<br>实给: ${actual}g<br>相差 ${diff}g (这生意没法做)`, false);
+    }
+};
+document.getElementById('btn-vendor-haggle-mode').onclick = () => {
+    if(state.totalWeight === 0) return showToast("还没称东西呢！");
+    document.getElementById('vendor-main-btns').style.display = 'none';
+    document.getElementById('vendor-haggle-panel').style.display = 'block';
+    document.getElementById('vendor-op-panel').classList.add('highlight');
+    setTimeout(() => document.getElementById('haggle-input').focus(), 100);
+};
+document.getElementById('btn-haggle-cancel').onclick = () => {
+    document.getElementById('vendor-main-btns').style.display = 'block';
+    document.getElementById('vendor-haggle-panel').style.display = 'none';
+    document.getElementById('vendor-op-panel').classList.remove('highlight');
+};
+document.getElementById('btn-haggle-confirm').onclick = () => {
+    const actual = state.totalWeight;
+    const val = parseInt(document.getElementById('haggle-input').value);
+    if(isNaN(val)) return showToast("请输入数字");
+    const diff = Math.abs(val - actual);
+    
+    if(diff <= 30) {
+        state.game.score += 50;
+        showResult("协商成交", `实际: ${actual}g<br>你算的: ${val}g<br>误差 ${diff}g<br>顾客觉得你挺诚实`, true);
+    } else {
+        showResult("协商失败", `实际: ${actual}g<br>你算的: ${val}g<br>误差 ${diff}g<br>顾客觉得你在坑人！`, false);
+    }
+};
+
+initMarket();
+resizeCanvas();
+loop();
+</script>
+</body>
+</html>
